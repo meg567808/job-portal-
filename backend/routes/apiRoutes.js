@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../config/db");
 const jwtAuth = require("../lib/jwtAuth");
+const sendEmail = require("../utils/sendEmail");
 
 
 // ✅ ADD JOB
@@ -320,6 +321,7 @@ router.get("/saved-jobs", jwtAuth, async (req, res) => {
 });
 
 
+
 // ✅ UPDATE APPLICATION STATUS (RECRUITER ONLY)
 router.put("/applications/:id", jwtAuth, async (req, res) => {
   try {
@@ -364,7 +366,7 @@ router.put("/applications/:id", jwtAuth, async (req, res) => {
       });
     }
 
-    // 🚫 cannot directly accept from applied (force shortlist first)
+    // 🚫 cannot directly accept from applied
     if (application.status === "applied" && status === "accepted") {
       return res.status(400).json({
         message: "Shortlist before accepting",
@@ -377,6 +379,13 @@ router.put("/applications/:id", jwtAuth, async (req, res) => {
       [status, appId]
     );
 
+    // 🔥 EMAIL TEST (HARDCODED TO YOUR EMAIL)
+    await sendEmail(
+  applicantEmail,
+  "Application Status Update",
+  `Your application status has been updated to: ${status}`
+);
+
     res.json({
       message: `Application ${status} successfully`,
     });
@@ -385,5 +394,6 @@ router.put("/applications/:id", jwtAuth, async (req, res) => {
     res.status(400).json(err);
   }
 });
+
 
 module.exports = router;
