@@ -1,90 +1,71 @@
 const express = require("express");
-const passport = require("passport");
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcrypt");
+const pool = require("../config/db");
 const authKeys = require("../lib/authKeys");
-
-const User = require("../db/User");
-const JobApplicant = require("../db/JobApplicant");
-const Recruiter = require("../db/Recruiter");
 
 const router = express.Router();
 
-router.post("/signup", (req, res) => {
-  const data = req.body;
-  let user = new User({
-    email: data.email,
-    password: data.password,
-    type: data.type,
-  });
+// ✅ SIGNUP
+router.post("/signup", async (req, res) => {
+  try {
+    const { email, password, type } = req.body;
 
-  user
-    .save()
-    .then(() => {
-      const userDetails =
-        user.type == "recruiter"
-          ? new Recruiter({
-              userId: user._id,
-              name: data.name,
-              contactNumber: data.contactNumber,
-              bio: data.bio,
-            })
-          : new JobApplicant({
-              userId: user._id,
-              name: data.name,
-              education: data.education,
-              skills: data.skills,
-              rating: data.rating,
-              resume: data.resume,
-              profile: data.profile,
-            });
+    // hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-      userDetails
-        .save()
-        .then(() => {
-          // Token
-          const token = jwt.sign({ _id: user._id }, authKeys.jwtSecretKey);
-          res.json({
-            token: token,
-            type: user.type,
-          });
-        })
-        .catch((err) => {
-          user
-            .delete()
-            .then(() => {
-              res.status(400).json(err);
-            })
-            .catch((err) => {
-              res.json({ error: err });
-            });
-          err;
-        });
-    })
-    .catch((err) => {
-      res.status(400).json(err);
-    });
+    // insert user
+    const [result] = await pool.execute(
+      "INSERT INTO users (email, password, type) VALUES (?, ?, ?)",
+      [email, hashedPassword, type]
+    );
+
+    // ✅ get inserted user id
+    const userId = result.insertId;
+
+    // ✅ FIX: include id in token
+    const token = jwt.sign(
+      { id: userId, type },
+      authKeys.jwtSecretKey
+    );
+
+    res.json({ token, type });
+  } catch (err) {
+    res.status(400).json(err);
+  }
 });
 
-router.post("/login", (req, res, next) => {
-  passport.authenticate(
-    "local",
-    { session: false },
-    function (err, user, info) {
-      if (err) {
-        return next(err);
-      }
-      if (!user) {
-        res.status(401).json(info);
-        return;
-      }
-      // Token
-      const token = jwt.sign({ _id: user._id }, authKeys.jwtSecretKey);
-      res.json({
-        token: token,
-        type: user.type,
-      });
+// ✅ LOGIN
+router.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const [rows] = await pool.execute(
+      "SELECT * FROM users WHERE email = ?",
+      [email]
+    );
+
+    if (rows.length === 0) {
+      return res.status(400).json({ message: "User not found" });
     }
-  )(req, res, next);
+
+    const user = rows[0];
+
+    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!isMatch) {
+      return res.status(400).json({ message: "Invalid password" });
+    }
+
+    const token = jwt.sign(
+      { id: user.id, type: user.type },
+      authKeys.jwtSecretKey
+    );
+
+    res.json({ token, type: user.type });
+  } catch (err) {
+    res.status(400).json(err);
+  }
 });
 
 module.exports = router;
